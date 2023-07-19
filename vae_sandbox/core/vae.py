@@ -39,7 +39,10 @@ class VAE(pl.LightningModule):
         self.encoder = nn.Sequential(*self.encoder)
 
         # Calculating the shape of the encoder output
+        self.eval()
         encoder_output = self.encoder(Tensor(1, *in_dim)).shape[1]
+        self.train()
+
         self.fc_mu = nn.Linear(encoder_output, latent_dim)
         self.fc_var = nn.Linear(encoder_output, latent_dim)
 
