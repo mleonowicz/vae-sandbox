@@ -32,7 +32,7 @@ profile = "black"
 [tool.pytest.ini_options]
 addopts = """
 --cov-report term-missing \
---cov src/vae_sandbox -ra"""
+--cov vae_sandbox -ra"""
 
 [tool.coverage.report]
 fail_under = 0
