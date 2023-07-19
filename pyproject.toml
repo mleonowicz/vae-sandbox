@@ -13,7 +13,24 @@ pytorch-lightning = "^2.0.5"
 torch = ">=2.0.0, !=2.0.1"
 kedro = "^0.18.11"
 
-
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.kedro]
+package_name = "vae_sandbox"
+project_name = "vae-sandbox"
+kedro_init_version = "0.18.11"
+
+[tool.isort]
+profile = "black"
+
+[tool.pytest.ini_options]
+addopts = """
+--cov-report term-missing \
+--cov src/vae_sandbox -ra"""
+
+[tool.coverage.report]
+fail_under = 0
+show_missing = true
+exclude_lines = ["pragma: no cover", "raise NotImplementedError"]
