@@ -17,6 +17,7 @@ from kedro.config import ConfigLoader
 from kedro.framework.context import KedroContext
 from kedro.framework.hooks import _create_hook_manager
 
+
 @pytest.fixture
 def config_loader():
     return ConfigLoader(conf_source=str(Path.cwd() / settings.CONF_SOURCE))
