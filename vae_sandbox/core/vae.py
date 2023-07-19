@@ -1,10 +1,9 @@
 """
-This file contains the implementation of the Variational Autoencoder (VAE) model. 
+This file contains the implementation of the Variational Autoencoder (VAE) model.
 """
 
 import pytorch_lightning as pl
-from torch import Tensor
-from torch import nn
+import torch
 
 
 class VAE(pl.LightningModule):
@@ -29,24 +28,29 @@ class VAE(pl.LightningModule):
         in_channel = in_dim[0]
         for out_channel in out_channels:
             self.encoder += [
-                nn.Conv2d(in_channel, out_channel, kernel_size=3, stride=2, padding=1),
-                nn.BatchNorm2d(out_channel),
-                nn.ReLU(),
+                torch.nn.Conv2d(in_channel, out_channel, kernel_size=3, stride=2, padding=1),
+                torch.nn.BatchNorm2d(out_channel),
+                torch.nn.ReLU(),
             ]
             in_channel = out_channel
-        self.encoder.append(nn.Flatten())
+        self.encoder.append(torch.nn.Flatten())
 
-        self.encoder = nn.Sequential(*self.encoder)
+        self.encoder = torch.nn.Sequential(*self.encoder)
 
         # Calculating the shape of the encoder output
         self.eval()
-        encoder_output = self.encoder(Tensor(1, *in_dim)).shape[1]
+        encoder_output = self.encoder(torch.Tensor(1, *in_dim)).shape[1]
         self.train()
 
-        self.fc_mu = nn.Linear(encoder_output, latent_dim)
-        self.fc_var = nn.Linear(encoder_output, latent_dim)
+        self.fc_mu = torch.nn.Linear(encoder_output, latent_dim)
 
-    def encode(self, x: Tensor) -> list[Tensor]:
+        # The logvar is used instead of the variance to ensure that the
+        # variance is always positive.
+        # Otherwise the model would be able to learn to produce negative
+        # variances which would be problematic.
+        self.fc_logvar = torch.nn.Linear(encoder_output, latent_dim)
+
+    def encode(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Encodes the input tensor into a latent space distribution
         parameterized by a mean and variance,
@@ -54,25 +58,46 @@ class VAE(pl.LightningModule):
 
         Parameters
         ----------
-        x : Tensor
+        x : torch.Tensor
             The input tensor to encode.
 
         Returns
         -------
-        list[Tensor]
+        tuple[torch.Tensor, torch.Tensor]
             The mean and variance of the latent space distribution.
         """
         encoded = self.encoder(x)
 
         mu = self.fc_mu(encoded)
-        var = self.fc_var(encoded)
-        return [mu, var]
+        logvar = self.fc_logvar(encoded)
+        return (mu, logvar)
 
-    def decode(self, z: Tensor):
+    def reparametrize(self, mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
+        """
+        Performs the reparametrization trick to sample from the latent space
+        and enable backpropagation.
+
+        Parameters
+        ----------
+        mu : torch.Tensor
+            Mean of the latent space distribution.
+        var : torch.Tensor
+            Variance of the latent space distribution.
+
+        Returns
+        -------
+        torch.Tensor
+            The latent space vector.
+        """
+        std = torch.exp(0.5 * logvar)
+        epsilon = torch.normal(0, 1, size=logvar.shape)
+        return mu + std * epsilon 
+
+    def decode(self, z: torch.Tensor):
         raise NotImplementedError
 
     def forward(self, x):
         raise NotImplementedError
 
-    def training_step(self, batch: list[Tensor], batch_idx: int):
+    def training_step(self, batch: list[torch.Tensor], batch_idx: int):
         raise NotImplementedError
