@@ -10,7 +10,7 @@ import pytest
 from vae_sandbox.core.vae import VAE
 
 
-@pytest.mark.parametrize("in_dim,latent_dim", [((3, 32, 32), 10), ((5, 10, 10), 100)])
+@pytest.mark.parametrize("in_dim,latent_dim", [((3, 32, 32), 10), ((3, 24, 24), 100)])
 def test_encoder(in_dim, latent_dim):
     """
     Test the encoder of the VAE.
@@ -24,7 +24,7 @@ def test_encoder(in_dim, latent_dim):
     assert var.shape == (1, latent_dim)
 
 
-@pytest.mark.parametrize("in_dim,latent_dim", [((3, 32, 32), 10), ((5, 10, 10), 100)])
+@pytest.mark.parametrize("in_dim,latent_dim", [((3, 32, 32), 10), ((3, 24, 24), 100)])
 def test_reparametrization(in_dim, latent_dim):
     """
     Test the reparametrization part of the VAE.
@@ -32,5 +32,16 @@ def test_reparametrization(in_dim, latent_dim):
     vae = VAE(in_dim=in_dim, latent_dim=latent_dim)
     mu = Tensor(1, latent_dim)
     logvar = Tensor(1, latent_dim)
-    vector = vae.reparametrize(mu, logvar)
-    assert vector.shape == (1, latent_dim)
+    z = vae.reparametrize(mu, logvar)
+    assert z.shape == (1, latent_dim)
+
+
+@pytest.mark.parametrize("in_dim,latent_dim", [((3, 32, 32), 10), ((3, 24, 24), 100)])
+def test_decoder(in_dim, latent_dim):
+    """
+    Test the reparametrization part of the VAE.
+    """
+    vae = VAE(in_dim=in_dim, latent_dim=latent_dim)
+    z = Tensor(1, latent_dim)
+    y = vae.decode(z)
+    assert y.shape == (1, *in_dim)
