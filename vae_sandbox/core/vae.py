@@ -20,35 +20,41 @@ class VAE(pl.LightningModule):
             The dimension of the latent space.
         """
         super().__init__()
+        self.in_dim = in_dim
+        self.latent_dim = latent_dim
 
         out_channels = [32, 64, 128, 256, 512]
 
+        # ----- Encoder -----
         self.encoder = []
 
         in_channel = in_dim[0]
         for out_channel in out_channels:
             self.encoder += [
-                torch.nn.Conv2d(in_channel, out_channel, kernel_size=3, stride=2, padding=1),
+                torch.nn.Conv2d(
+                    in_channel, out_channel, kernel_size=3, stride=2, padding=1
+                ),
                 torch.nn.BatchNorm2d(out_channel),
                 torch.nn.ReLU(),
             ]
             in_channel = out_channel
-        self.encoder.append(torch.nn.Flatten())
-
         self.encoder = torch.nn.Sequential(*self.encoder)
 
         # Calculating the shape of the encoder output
         self.eval()
-        encoder_output = self.encoder(torch.Tensor(1, *in_dim)).shape[1]
+        self.encoder_output_dim = self.encoder(torch.Tensor(1, *in_dim)).shape[1:]
+        self.encoder_output_flatten = torch.flatten(torch.Tensor(*self.encoder_output_dim)).shape[0]
         self.train()
 
-        self.fc_mu = torch.nn.Linear(encoder_output, latent_dim)
+        # ----- Reparametrization
+        self.fc_mu = torch.nn.Linear(self.encoder_output_flatten, latent_dim)
 
         # The logvar is used instead of the variance to ensure that the
         # variance is always positive.
         # Otherwise the model would be able to learn to produce negative
         # variances which would be problematic.
-        self.fc_logvar = torch.nn.Linear(encoder_output, latent_dim)
+        self.fc_logvar = torch.nn.Linear(self.encoder_output_flatten, latent_dim)
+
 
     def encode(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
@@ -67,9 +73,10 @@ class VAE(pl.LightningModule):
             The mean and variance of the latent space distribution.
         """
         encoded = self.encoder(x)
+        flatten = torch.flatten(encoded, start_dim=1)
 
-        mu = self.fc_mu(encoded)
-        logvar = self.fc_logvar(encoded)
+        mu = self.fc_mu(flatten)
+        logvar = self.fc_logvar(flatten)
         return (mu, logvar)
 
     def reparametrize(self, mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
@@ -91,7 +98,7 @@ class VAE(pl.LightningModule):
         """
         std = torch.exp(0.5 * logvar)
         epsilon = torch.normal(0, 1, size=logvar.shape)
-        return mu + std * epsilon 
+        return mu + std * epsilon
 
     def decode(self, z: torch.Tensor):
         raise NotImplementedError
