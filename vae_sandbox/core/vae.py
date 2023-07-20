@@ -139,8 +139,16 @@ class VAE(pl.LightningModule):
         z = self.decoder(z)
         return z
 
+    def generate(self, num_of_samples: int) -> torch.Tensor:
+        z = torch.normal(0, 1, size=(num_of_samples, self.latent_dim))
+        samples = self.decode(z)
+        return samples
+
     def forward(self, x):
-        raise NotImplementedError
+        mu, logvar = self.encode(x)
+        z = self.reparameterize(mu, logvar)
+        y = self.decode(z)
+        return y
 
     def training_step(self, batch: list[torch.Tensor], batch_idx: int):
         raise NotImplementedError
