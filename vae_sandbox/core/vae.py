@@ -23,7 +23,7 @@ class VAE(pl.LightningModule):
         self.in_dim = in_dim
         self.latent_dim = latent_dim
 
-        out_channels = [32, 64, 128, 256, 512]
+        out_channels = [32, 64, 128]
 
         # ----- Encoder -----
         self.encoder = []
@@ -43,7 +43,9 @@ class VAE(pl.LightningModule):
         # Calculating the shape of the encoder output
         self.eval()
         self.encoder_output_dim = self.encoder(torch.Tensor(1, *in_dim)).shape[1:]
-        self.encoder_output_flatten = torch.flatten(torch.Tensor(*self.encoder_output_dim)).shape[0]
+        self.encoder_output_flatten = torch.flatten(
+            torch.Tensor(*self.encoder_output_dim)
+        ).shape[0]
         self.train()
 
         # ----- Reparametrization
@@ -55,6 +57,37 @@ class VAE(pl.LightningModule):
         # variances which would be problematic.
         self.fc_logvar = torch.nn.Linear(self.encoder_output_flatten, latent_dim)
 
+        # ----- Decoder -----
+        self.decoder_input = torch.nn.Sequential(
+            torch.nn.Linear(latent_dim, self.encoder_output_flatten)
+        )
+
+        self.decoder = []
+        in_channels = out_channels[::-1]
+        for in_channel, out_channel in zip(in_channels, in_channels[1:]):
+            self.decoder += [
+                torch.nn.ConvTranspose2d(
+                    in_channel,
+                    out_channel,
+                    kernel_size=3,
+                    stride=2,
+                    padding=1,
+                    output_padding=1,
+                ),
+                torch.nn.BatchNorm2d(out_channel),
+                torch.nn.ReLU(),
+            ]
+        self.decoder.append(
+            torch.nn.ConvTranspose2d(
+                in_channels[-1],
+                in_dim[0],
+                kernel_size=3,
+                stride=2,
+                padding=1,
+                output_padding=1,
+            ),
+        )
+        self.decoder = torch.nn.Sequential(*self.decoder)
 
     def encode(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
@@ -101,7 +134,10 @@ class VAE(pl.LightningModule):
         return mu + std * epsilon
 
     def decode(self, z: torch.Tensor):
-        raise NotImplementedError
+        z = self.decoder_input(z)
+        z = z.reshape(-1, *self.encoder_output_dim)
+        z = self.decoder(z)
+        return z
 
     def forward(self, x):
         raise NotImplementedError
