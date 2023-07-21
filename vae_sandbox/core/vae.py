@@ -134,17 +134,56 @@ class VAE(pl.LightningModule):
         return mu + std * epsilon
 
     def decode(self, z: torch.Tensor):
+        """
+        Decodes the latent space vector into the original input space.        
+
+        Parameters
+        ----------
+        z : torch.Tensor
+            The latent space vector.
+
+        Returns
+        -------
+        torch.Tensor
+            The decoded tensor.
+        """
         z = self.decoder_input(z)
         z = z.reshape(-1, *self.encoder_output_dim)
         z = self.decoder(z)
         return z
 
     def generate(self, num_of_samples: int) -> torch.Tensor:
+        """
+        Generates samples from the latent space.
+        
+        Parameters
+        ----------
+        num_of_samples : int
+            The number of samples to generate.
+
+        Returns
+        -------
+        torch.Tensor
+            The generated samples.
+        """
         z = torch.normal(0, 1, size=(num_of_samples, self.latent_dim))
         samples = self.decode(z)
         return samples
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass of the model.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            The input tensor.
+
+        Returns
+        -------
+        torch.Tensor
+            The output tensor.
+        """
         mu, logvar = self.encode(x)
         z = self.reparameterize(mu, logvar)
         y = self.decode(z)
