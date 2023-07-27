@@ -23,7 +23,7 @@ class VAE(pl.LightningModule):
         self.in_dim = in_dim
         self.latent_dim = latent_dim
 
-        out_channels = [32, 64, 128]
+        out_channels = [32, 64, 128, 256]
 
         # ----- Encoder -----
         self.encoder = []
@@ -135,7 +135,7 @@ class VAE(pl.LightningModule):
 
     def decode(self, z: torch.Tensor):
         """
-        Decodes the latent space vector into the original input space.        
+        Decodes the latent space vector into the original input space.
 
         Parameters
         ----------
@@ -155,7 +155,7 @@ class VAE(pl.LightningModule):
     def generate(self, num_of_samples: int) -> torch.Tensor:
         """
         Generates samples from the latent space.
-        
+
         Parameters
         ----------
         num_of_samples : int
@@ -170,7 +170,9 @@ class VAE(pl.LightningModule):
         samples = self.decode(z)
         return samples
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, x: torch.Tensor
+    ) -> [torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Forward pass of the model.
 
@@ -181,13 +183,48 @@ class VAE(pl.LightningModule):
 
         Returns
         -------
-        torch.Tensor
-            The output tensor.
+        [torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
+            The input tensor, the mean of the latent space distribution
+            the logvar of the latent space distribution and the output tensor.
         """
         mu, logvar = self.encode(x)
-        z = self.reparameterize(mu, logvar)
+        z = self.reparametrize(mu, logvar)
         y = self.decode(z)
-        return y
+        return [x, mu, logvar, y]
+
+    def calculate_loss(
+        self, x: torch.Tensor, mu: torch.Tensor, logvar: torch.Tensor, y: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        Calculates the loss of the model, which is the sum of the
+        reconstruction loss and the KL divergence.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            The input tensor.
+        mu : torch.Tensor
+            The mean of the latent space distribution.
+        logvar : torch.Tensor
+            The logvar of the latent space distribution.
+        y : torch.Tensor
+            The output tensor.
+
+        Returns
+        -------
+        torch.Tensor
+            The loss of the model.
+        """
+
+        # Reconstruction loss
+        reconstruction_loss = torch.nn.functional.mse_loss(y, x)
+
+        # KL divergence
+        kl_divergence = torch.mean(
+            -0.5 * torch.sum(1 + logvar - mu**2 - torch.exp(logvar), dim=1), dim=0
+        )
+
+        return reconstruction_loss + kl_divergence
 
     def training_step(self, batch: list[torch.Tensor], batch_idx: int):
         raise NotImplementedError
