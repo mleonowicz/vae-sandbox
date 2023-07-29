@@ -7,7 +7,12 @@ import torch
 
 
 class VAE(pl.LightningModule):
-    def __init__(self, in_dim: tuple[int, int, int], latent_dim: int):
+    def __init__(
+        self,
+        in_dim: tuple[int, int, int],
+        latent_dim: int,
+        out_channels: list[int] = None,
+    ):
         """
         Initializes the VAE model.
 
@@ -18,18 +23,23 @@ class VAE(pl.LightningModule):
             The tuple should be of the form (channels, height, width).
         latent_dim : int
             The dimension of the latent space.
+        out_channels : list[int], optional
+            The number of output channels for each convolutional layer.
         """
         super().__init__()
         self.in_dim = in_dim
         self.latent_dim = latent_dim
 
-        out_channels = [32, 64, 128, 256]
+        if out_channels is None:
+            self.out_channels = [32, 64, 128, 256]
+        else:
+            self.out_channels = out_channels
 
         # ----- Encoder -----
         self.encoder = []
 
         in_channel = in_dim[0]
-        for out_channel in out_channels:
+        for out_channel in self.out_channels:
             self.encoder += [
                 torch.nn.Conv2d(
                     in_channel, out_channel, kernel_size=3, stride=2, padding=1
@@ -63,7 +73,7 @@ class VAE(pl.LightningModule):
         )
 
         self.decoder = []
-        in_channels = out_channels[::-1]
+        in_channels = self.out_channels[::-1]
         for in_channel, out_channel in zip(in_channels, in_channels[1:]):
             self.decoder += [
                 torch.nn.ConvTranspose2d(
@@ -227,4 +237,49 @@ class VAE(pl.LightningModule):
         return reconstruction_loss + kl_divergence
 
     def training_step(self, batch: list[torch.Tensor], batch_idx: int):
-        raise NotImplementedError
+        """
+        Training step of the model.
+
+        Parameters
+        ----------
+        batch : list[torch.Tensor]
+            The batch of data.
+        batch_idx : int
+            The index of the batch.
+
+        Returns
+        -------
+        torch.Tensor
+            The loss of the model.
+        """
+        _, mu, logvar, y = self.forward(batch)
+        loss = self.calculate_loss(batch, mu, logvar, y)
+        self.log("train_loss", loss)
+        return loss
+
+    def configure_optimizers(self):
+        """
+        Configures the optimizer of the model.
+
+        Returns
+        -------
+        torch.optim.Optimizer
+            The optimizer of the model.
+        """
+        return torch.optim.Adam(self.parameters(), lr=1e-3)
+
+
+from torchvision.datasets import MNIST
+from torchvision.transforms import ToTensor
+import os
+
+vae = VAE((1, 28, 28), 10)
+
+# setup data
+dataset = MNIST(os.getcwd(), download=True, transform=ToTensor())
+train_loader = torch.utils.data.DataLoader(dataset, batch_size=32, shuffle=True)
+
+for t in train_loader:
+    x = vae(t[0])
+    print(x)
+    break
