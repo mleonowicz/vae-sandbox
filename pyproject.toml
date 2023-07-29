@@ -12,6 +12,7 @@ python = ">=3.10,<3.11"
 pytorch-lightning = "^2.0.5"
 torch = ">=2.0.0, !=2.0.1"
 kedro = "^0.18.11"
+torchvision = "0.15.1"
 
 [tool.poetry.group.dev.dependencies]
 pytest-cov = "^4.1.0"
