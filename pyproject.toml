@@ -18,6 +18,7 @@ torchvision = "0.15.1"
 pytest-cov = "^4.1.0"
 pytest = "^7.4.0"
 pdbpp = "^0.10.3"
+matplotlib = "^3.7.2"
 
 [build-system]
 requires = ["poetry-core"]
