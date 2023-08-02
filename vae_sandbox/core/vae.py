@@ -11,7 +11,10 @@ class VAE(pl.LightningModule):
         self,
         in_dim: tuple[int, int, int],
         latent_dim: int,
-        out_channels: list[int] = None,
+        out_channels: list[int] = [32, 64, 128, 256, 512],
+        kernel_size: int = 3,
+        stride: int = 2,
+        padding: int = 1,
     ):
         """
         Initializes the VAE model.
@@ -23,81 +26,110 @@ class VAE(pl.LightningModule):
             The tuple should be of the form (channels, height, width).
         latent_dim : int
             The dimension of the latent space.
-        out_channels : list[int], optional
-            The number of output channels for each convolutional layer.
+        out_channels : list[int]
+            The number of output channels of the convolutional layers.
+            The default is [32, 64, 128, 256, 512].
+        kernel_size : int, optional
+            The kernel size of the convolutional layers.
+            The default is 3.
+        stride : int, optional
+            The stride of the convolutional layers.
+            The default is 2.
+        padding : int, optional
+            The padding of the convolutional layers.
+            The default is 1.
         """
         super().__init__()
         self.in_dim = in_dim
         self.latent_dim = latent_dim
+        self.out_channels = out_channels
 
-        if out_channels is None:
-            self.out_channels = [32, 64, 128, 256]
-        else:
-            self.out_channels = out_channels
+        self.save_hyperparameters()
 
         # ----- Encoder -----
-        self.encoder = []
+        encoder = []
 
         in_channel = in_dim[0]
         for out_channel in self.out_channels:
-            self.encoder += [
-                torch.nn.Conv2d(
-                    in_channel, out_channel, kernel_size=3, stride=2, padding=1
-                ),
+            encoder += [
+                torch.nn.Conv2d(in_channel, out_channel, kernel_size, stride, padding),
                 torch.nn.BatchNorm2d(out_channel),
                 torch.nn.ReLU(),
             ]
             in_channel = out_channel
-        self.encoder = torch.nn.Sequential(*self.encoder)
+        self.encoder = torch.nn.Sequential(*encoder)
 
         # Calculating the shape of the encoder output
         self.eval()
-        self.encoder_output_dim = self.encoder(torch.Tensor(1, *in_dim)).shape[1:]
-        self.encoder_output_flatten = torch.flatten(
+        x = torch.Tensor(1, *in_dim)
+
+        conv_shapes = []
+        for layer in self.encoder:
+            x = layer(x)
+            if type(layer).__name__ == "Conv2d":
+                conv_shapes.append(x.shape[1:])
+
+        self.encoder_output_dim = conv_shapes[-1]
+        encoder_output_flatten = torch.flatten(
             torch.Tensor(*self.encoder_output_dim)
         ).shape[0]
         self.train()
 
         # ----- Reparametrization
-        self.fc_mu = torch.nn.Linear(self.encoder_output_flatten, latent_dim)
+        self.fc_mu = torch.nn.Linear(encoder_output_flatten, latent_dim)
 
         # The logvar is used instead of the variance to ensure that the
         # variance is always positive.
         # Otherwise the model would be able to learn to produce negative
         # variances which would be problematic.
-        self.fc_logvar = torch.nn.Linear(self.encoder_output_flatten, latent_dim)
+        self.fc_logvar = torch.nn.Linear(encoder_output_flatten, latent_dim)
 
         # ----- Decoder -----
         self.decoder_input = torch.nn.Sequential(
-            torch.nn.Linear(latent_dim, self.encoder_output_flatten)
+            torch.nn.Linear(latent_dim, encoder_output_flatten)
         )
 
-        self.decoder = []
+        decoder = []
         in_channels = self.out_channels[::-1]
-        for in_channel, out_channel in zip(in_channels, in_channels[1:]):
-            self.decoder += [
+        conv_shapes = conv_shapes[::-1]
+        for i, (in_channel, out_channel) in enumerate(
+            zip(in_channels, in_channels[1:])
+        ):
+            # Calculating the output padding to ensure that the output shape
+            # is the same as the input shape.
+            # The formula is taken from the PyTorch documentation:
+            # https://pytorch.org/docs/stable/generated/torch.nn.ConvTranspose2d.html
+
+            out_size = (conv_shapes[i][2] - 1) * stride - 2 * padding + kernel_size
+            output_padding = conv_shapes[i + 1][2] - out_size
+
+            decoder += [
                 torch.nn.ConvTranspose2d(
                     in_channel,
                     out_channel,
-                    kernel_size=3,
-                    stride=2,
-                    padding=1,
-                    output_padding=1,
+                    kernel_size,
+                    stride,
+                    padding,
+                    output_padding,
                 ),
                 torch.nn.BatchNorm2d(out_channel),
                 torch.nn.ReLU(),
             ]
-        self.decoder.append(
+
+        out_size = (conv_shapes[-1][2] - 1) * stride - 2 * padding + kernel_size
+        output_padding = in_dim[2] - out_size
+
+        decoder.append(
             torch.nn.ConvTranspose2d(
                 in_channels[-1],
                 in_dim[0],
-                kernel_size=3,
-                stride=2,
-                padding=1,
-                output_padding=1,
+                kernel_size,
+                stride,
+                padding,
+                output_padding,
             ),
         )
-        self.decoder = torch.nn.Sequential(*self.decoder)
+        self.decoder = torch.nn.Sequential(*decoder)
 
     def encode(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """
@@ -140,7 +172,7 @@ class VAE(pl.LightningModule):
             The latent space vector.
         """
         std = torch.exp(0.5 * logvar)
-        epsilon = torch.normal(0, 1, size=logvar.shape)
+        epsilon = torch.normal(0, 1, size=logvar.shape, device=self.device)
         return mu + std * epsilon
 
     def decode(self, z: torch.Tensor):
@@ -227,14 +259,18 @@ class VAE(pl.LightningModule):
         """
 
         # Reconstruction loss
-        reconstruction_loss = torch.nn.functional.mse_loss(y, x)
+        reconstruction_loss = torch.nn.functional.mse_loss(x, y)
 
         # KL divergence
         kl_divergence = torch.mean(
-            -0.5 * torch.sum(1 + logvar - mu**2 - torch.exp(logvar), dim=1), dim=0
+            -0.5 * torch.sum(1 + logvar - mu**2 - logvar.exp(), dim=1), dim=0
         )
 
-        return reconstruction_loss + kl_divergence
+        return {
+            "loss": reconstruction_loss + 0.00025 * kl_divergence,
+            "reconstruction_loss": reconstruction_loss,
+            "kl_divergence": kl_divergence,
+        }
 
     def training_step(self, batch: list[torch.Tensor], batch_idx: int):
         """
@@ -252,10 +288,15 @@ class VAE(pl.LightningModule):
         torch.Tensor
             The loss of the model.
         """
-        _, mu, logvar, y = self.forward(batch)
-        loss = self.calculate_loss(batch, mu, logvar, y)
-        self.log("train_loss", loss)
-        return loss
+        x, labels = batch
+        _, mu, logvar, y = self.forward(x)
+        loss = self.calculate_loss(x, mu, logvar, y)
+
+        self.log("train_loss", loss["loss"])
+        self.log("train_reconstruction_loss", loss["reconstruction_loss"])
+        self.log("train_kl_divergence", loss["kl_divergence"])
+
+        return loss["loss"]
 
     def configure_optimizers(self):
         """
@@ -266,20 +307,4 @@ class VAE(pl.LightningModule):
         torch.optim.Optimizer
             The optimizer of the model.
         """
-        return torch.optim.Adam(self.parameters(), lr=1e-3)
-
-
-from torchvision.datasets import MNIST
-from torchvision.transforms import ToTensor
-import os
-
-vae = VAE((1, 28, 28), 10)
-
-# setup data
-dataset = MNIST(os.getcwd(), download=True, transform=ToTensor())
-train_loader = torch.utils.data.DataLoader(dataset, batch_size=32, shuffle=True)
-
-for t in train_loader:
-    x = vae(t[0])
-    print(x)
-    break
+        return torch.optim.Adam(self.parameters(), lr=0.005)
